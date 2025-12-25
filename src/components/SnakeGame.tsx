@@ -13,7 +13,8 @@ const GRID_SIZE = 20;
 const CELL_SIZE = 20;
 const INITIAL_SNAKE: Position[] = [{ x: 10, y: 10 }];
 const INITIAL_DIRECTION = { x: 1, y: 0 };
-const GAME_SPEED = 150;
+const BASE_GAME_SPEED = 120;
+const MIN_GAME_SPEED = 50;
 
 export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -24,6 +25,9 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const directionRef = useRef(direction);
+  const directionQueueRef = useRef<Position[]>([]);
+  const snakeRef = useRef(snake);
+  const [gameSpeed, setGameSpeed] = useState(BASE_GAME_SPEED);
 
   const generateFood = useCallback((currentSnake: Position[]): Position => {
     let newFood: Position;
@@ -40,10 +44,13 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
 
   const resetGame = useCallback(() => {
     setSnake(INITIAL_SNAKE);
+    snakeRef.current = INITIAL_SNAKE;
     setDirection(INITIAL_DIRECTION);
     directionRef.current = INITIAL_DIRECTION;
+    directionQueueRef.current = [];
     setFood({ x: 15, y: 15 });
     setScore(0);
+    setGameSpeed(BASE_GAME_SPEED);
     setGameOver(false);
     setIsPlaying(false);
   }, []);
@@ -57,6 +64,16 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
 
   const moveSnake = useCallback(() => {
     setSnake((prevSnake) => {
+      if (directionQueueRef.current.length > 0) {
+        const nextDir = directionQueueRef.current.shift();
+        if (nextDir) {
+          const currentDir = directionRef.current;
+          if (nextDir.x !== -currentDir.x || nextDir.y !== -currentDir.y) {
+            directionRef.current = nextDir;
+          }
+        }
+      }
+
       const newHead = {
         x: prevSnake[0].x + directionRef.current.x,
         y: prevSnake[0].y + directionRef.current.y,
@@ -77,10 +94,17 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
           return newScore;
         });
         setFood(generateFood(newSnake));
+
+        const newGameSpeed = Math.max(
+          MIN_GAME_SPEED,
+          BASE_GAME_SPEED - (newSnake.length - 1) * 2
+        );
+        setGameSpeed(newGameSpeed);
       } else {
         newSnake.pop();
       }
 
+      snakeRef.current = newSnake;
       return newSnake;
     });
   }, [food, checkCollision, generateFood, onScoreChange]);
@@ -92,14 +116,12 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
   useEffect(() => {
     if (!isPlaying) return;
 
-    const gameLoop = setInterval(moveSnake, GAME_SPEED);
+    const gameLoop = setInterval(moveSnake, gameSpeed);
     return () => clearInterval(gameLoop);
-  }, [isPlaying, moveSnake]);
+  }, [isPlaying, moveSnake, gameSpeed]);
 
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (!isPlaying) return;
-
       const keyMap: { [key: string]: Position } = {
         ArrowUp: { x: 0, y: -1 },
         ArrowDown: { x: 0, y: 1 },
@@ -108,15 +130,9 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
       };
 
       const newDirection = keyMap[e.key];
-      if (newDirection) {
+      if (newDirection && isPlaying) {
         e.preventDefault();
-        const currentDir = directionRef.current;
-        if (
-          newDirection.x !== -currentDir.x ||
-          newDirection.y !== -currentDir.y
-        ) {
-          setDirection(newDirection);
-        }
+        directionQueueRef.current.push(newDirection);
       }
 
       if (e.key === ' ') {
@@ -138,20 +154,6 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
 
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= GRID_SIZE; i++) {
-      ctx.beginPath();
-      ctx.moveTo(i * CELL_SIZE, 0);
-      ctx.lineTo(i * CELL_SIZE, GRID_SIZE * CELL_SIZE);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(0, i * CELL_SIZE);
-      ctx.lineTo(GRID_SIZE * CELL_SIZE, i * CELL_SIZE);
-      ctx.stroke();
-    }
 
     snake.forEach((segment, index) => {
       const gradient = ctx.createLinearGradient(
@@ -212,10 +214,7 @@ export default function SnakeGame({ onScoreChange }: SnakeGameProps) {
 
   const handleDirectionClick = (newDir: Position) => {
     if (!isPlaying) return;
-    const currentDir = directionRef.current;
-    if (newDir.x !== -currentDir.x || newDir.y !== -currentDir.y) {
-      setDirection(newDir);
-    }
+    directionQueueRef.current.push(newDir);
   };
 
   return (
